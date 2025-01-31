@@ -63,10 +63,10 @@ pub use editor_settings::{
     CurrentLineHighlight, EditorSettings, ScrollBeyondLastLine, SearchSettings, ShowScrollbar,
 };
 pub use editor_settings_controls::*;
-use element::LineWithInvisibles;
 pub use element::{
     CursorLayout, EditorElement, HighlightedRange, HighlightedRangeLine, PointForPosition,
 };
+use element::{LineWithInvisibles, PositionMap};
 use futures::{future, FutureExt};
 use fuzzy::StringMatchCandidate;
 use zed_predict_onboarding::ZedPredictModal;
@@ -724,6 +724,7 @@ pub struct Editor {
         >,
     >,
     last_bounds: Option<Bounds<Pixels>>,
+    last_position_map: Option<Rc<PositionMap>>,
     expect_bounds_change: Option<Bounds<Pixels>>,
     tasks: BTreeMap<(BufferId, BufferRow), RunnableTasks>,
     tasks_update_task: Option<Task<()>>,
@@ -1383,6 +1384,7 @@ impl Editor {
             gutter_hovered: false,
             pixel_position_of_newest_cursor: None,
             last_bounds: None,
+            last_position_map: None,
             expect_bounds_change: None,
             gutter_dimensions: GutterDimensions::default(),
             style: None,
@@ -14100,7 +14102,7 @@ impl Editor {
             .and_then(|item| item.to_any().downcast_ref::<T>())
     }
 
-    fn character_size(&self, window: &mut Window) -> gpui::Point<Pixels> {
+    fn character_size(&self, window: &mut Window) -> gpui::Size<Pixels> {
         let text_layout_details = self.text_layout_details(window);
         let style = &text_layout_details.editor_style;
         let font_id = window.text_system().resolve_font(&style.text.font());
@@ -14114,7 +14116,7 @@ impl Editor {
             .size
             .width;
 
-        gpui::Point::new(em_width, line_height)
+        gpui::Size::new(em_width, line_height)
     }
 }
 
@@ -15615,9 +15617,9 @@ impl EntityInputHandler for Editor {
         cx: &mut Context<Self>,
     ) -> Option<gpui::Bounds<Pixels>> {
         let text_layout_details = self.text_layout_details(window);
-        let gpui::Point {
-            x: em_width,
-            y: line_height,
+        let gpui::Size {
+            width: em_width,
+            height: line_height,
         } = self.character_size(window);
 
         let snapshot = self.snapshot(window, cx);
@@ -15634,6 +15636,24 @@ impl EntityInputHandler for Editor {
             origin: element_bounds.origin + point(x, y),
             size: size(em_width, line_height),
         })
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        point: gpui::Point<Pixels>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<usize> {
+        let position_map = self.last_position_map.as_ref()?;
+        if !position_map.text_hitbox.contains(&point) {
+            return None;
+        }
+        let display_point = position_map.point_for_position(point).previous_valid;
+        let anchor = position_map
+            .snapshot
+            .display_point_to_anchor(display_point, Bias::Left);
+        let utf16_offset = anchor.to_offset_utf16(&position_map.snapshot.buffer_snapshot);
+        Some(utf16_offset.0)
     }
 }
 
