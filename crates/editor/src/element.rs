@@ -782,6 +782,7 @@ impl EditorElement {
         window: &mut Window,
         cx: &mut Context<Editor>,
     ) {
+        let text_hitbox = &position_map.text_hitbox;
         let pending_nonempty_selections = editor.has_pending_nonempty_selection();
 
         let multi_cursor_setting = EditorSettings::get_global(cx).multi_cursor_modifier;
@@ -5356,24 +5357,22 @@ impl EditorElement {
         window.on_mouse_event({
             let editor = self.editor.clone();
             let position_map = layout.position_map.clone();
-            let text_hitbox = layout.text_hitbox.clone();
-
             let mut captured_mouse_down = None;
 
             move |event: &MouseUpEvent, phase, window, cx| match phase {
                 // Clear the pending mouse down during the capture phase,
                 // so that it happens even if another event handler stops
                 // propagation.
-                DispatchPhase::Capture => editor.update(cx, |editor, _cx| {
+                DispatchPhase::Capture => editor.update(cx, |editor, cx| {
                     let pending_mouse_down = editor
                         .pending_mouse_down
                         .get_or_insert_with(Default::default)
                         .clone();
 
                     let mut pending_mouse_down = pending_mouse_down.borrow_mut();
-                    if pending_mouse_down.is_some() && text_hitbox.is_hovered(window) {
+                    if pending_mouse_down.is_some() && position_map.text_hitbox.is_hovered(window) {
                         captured_mouse_down = pending_mouse_down.take();
-                        window.refresh();
+                        cx.notify();
                     }
                 }),
                 // Fire click handlers during the bubble phase.
@@ -5383,7 +5382,7 @@ impl EditorElement {
                             down: mouse_down,
                             up: event.clone(),
                         };
-                        Self::click(editor, &event, &position_map, &text_hitbox, window, cx);
+                        Self::click(editor, &event, &position_map, window, cx);
                     }
                 }),
             }
