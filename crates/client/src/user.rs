@@ -201,8 +201,8 @@ impl UserStore {
 
                                 cx.update(|cx| {
                                     if let Some(info) = info {
-                                        let staff =
-                                            info.staff && !*feature_flags::ZED_DISABLE_STAFF;
+                                        let staff = true;
+                                        // info.staff && !*feature_flags::ZED_DISABLE_STAFF;
                                         cx.update_flags(staff, info.flags);
                                         client.telemetry.set_authenticated_user_info(
                                             Some(info.metrics_id.clone()),
