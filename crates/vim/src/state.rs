@@ -110,6 +110,7 @@ pub enum Operator {
     ReplayRegister,
     ToggleComments,
     ReplaceWithRegister,
+    Exchange,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -225,7 +226,7 @@ impl VimGlobals {
                     interceptor.set(Box::new(command_interceptor));
                 });
             } else {
-                KeyBinding::set_vim_mode(cx, true);
+                KeyBinding::set_vim_mode(cx, false);
                 *Vim::globals(cx) = VimGlobals::default();
                 CommandPaletteInterceptor::update_global(cx, |interceptor, _| {
                     interceptor.clear();
@@ -501,6 +502,7 @@ impl Operator {
             Operator::ShellCommand => "sh",
             Operator::Rewrap => "gq",
             Operator::ReplaceWithRegister => "gr",
+            Operator::Exchange => "cx",
             Operator::Outdent => "<",
             Operator::Uppercase => "gU",
             Operator::Lowercase => "gu",
@@ -554,6 +556,7 @@ impl Operator {
             | Operator::Lowercase
             | Operator::Uppercase
             | Operator::ReplaceWithRegister
+            | Operator::Exchange
             | Operator::Object { .. }
             | Operator::ChangeSurrounds { target: None }
             | Operator::OppositeCase
