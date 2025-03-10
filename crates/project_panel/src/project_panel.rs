@@ -26,7 +26,7 @@ use gpui::{
 };
 use indexmap::IndexMap;
 use language::DiagnosticSeverity;
-use menu::{Confirm, SelectFirst, SelectLast, SelectNext, SelectPrev};
+use menu::{Confirm, SelectFirst, SelectLast, SelectNext, SelectPrevious};
 use project::{
     relativize_path, Entry, EntryKind, Fs, Project, ProjectEntryId, ProjectPath, Worktree,
     WorktreeId,
@@ -59,7 +59,8 @@ use util::{maybe, paths::compare_paths, ResultExt, TakeUntilExt, TryFutureExt};
 use workspace::{
     dock::{DockPosition, Panel, PanelEvent},
     notifications::{DetachAndPromptErr, NotifyTaskExt},
-    DraggedSelection, OpenInTerminal, PreviewTabsSettings, SelectedEntry, Workspace,
+    DraggedSelection, OpenInTerminal, OpenOptions, OpenVisible, PreviewTabsSettings, SelectedEntry,
+    Workspace,
 };
 use worktree::{CreatedEntry, GitEntry, GitEntryRef};
 
@@ -485,6 +486,7 @@ impl ProjectPanel {
                                     None,
                                     focus_opened_item,
                                     allow_preview,
+                                    true,
                                     window, cx,
                                 )
                                 .detach_and_prompt_err("Failed to open file", window, cx, move |e, _, _| {
@@ -1027,13 +1029,14 @@ impl ProjectPanel {
         });
     }
 
-    fn select_prev(&mut self, _: &SelectPrev, window: &mut Window, cx: &mut Context<Self>) {
+    fn select_previous(&mut self, _: &SelectPrevious, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(edit_state) = &self.edit_state {
             if edit_state.processing_filename.is_none() {
                 self.filename_editor.update(cx, |editor, cx| {
                     editor.move_to_beginning_of_line(
                         &editor::actions::MoveToBeginningOfLine {
                             stop_at_soft_wraps: false,
+                            stop_at_indent: false,
                         },
                         window,
                         cx,
@@ -1095,6 +1098,7 @@ impl ProjectPanel {
         if let Some((_, entry)) = self.selected_entry(cx) {
             if entry.is_file() {
                 self.open_entry(entry.id, focus_opened_item, allow_preview, cx);
+                cx.notify();
             } else {
                 self.toggle_expanded(entry.id, window, cx);
             }
@@ -1208,7 +1212,7 @@ impl ProjectPanel {
                                 project_panel
                                     .workspace
                                     .update(cx, |workspace, cx| {
-                                        workspace.open_abs_path(abs_path, true, window, cx)
+                                        workspace.open_abs_path(abs_path, OpenOptions { visible: Some(OpenVisible::All), ..Default::default() }, window, cx)
                                     })
                                     .ok()
                             }
@@ -2108,12 +2112,12 @@ impl ProjectPanel {
                     match task {
                         PasteTask::Rename(task) => {
                             if let Some(CreatedEntry::Included(entry)) = task.await.log_err() {
-                                last_succeed = Some(entry.id);
+                                last_succeed = Some(entry);
                             }
                         }
                         PasteTask::Copy(task) => {
                             if let Some(Some(entry)) = task.await.log_err() {
-                                last_succeed = Some(entry.id);
+                                last_succeed = Some(entry);
                                 if need_delete {
                                     need_delete_ids.push(entry_id);
                                 }
@@ -2133,17 +2137,31 @@ impl ProjectPanel {
                         .await?;
                 }
                 // update selection
-                if let Some(entry_id) = last_succeed {
+                if let Some(entry) = last_succeed {
                     project_panel
                         .update_in(&mut cx, |project_panel, window, cx| {
                             project_panel.selection = Some(SelectedEntry {
                                 worktree_id,
-                                entry_id,
+                                entry_id: entry.id,
                             });
 
-                            // if only one entry was pasted and it was disambiguated, open the rename editor
-                            if item_count == 1 && disambiguation_range.is_some() {
-                                project_panel.rename_impl(disambiguation_range, window, cx);
+                            if item_count == 1 {
+                                // open entry if not dir, and only focus if rename is not pending
+                                if !entry.is_dir() {
+                                    project_panel.open_entry(
+                                        entry.id,
+                                        disambiguation_range.is_none(),
+                                        false,
+                                        cx,
+                                    );
+                                }
+
+                                // if only one entry was pasted and it was disambiguated, open the rename editor
+                                if disambiguation_range.is_some() {
+                                    cx.defer_in(window, |this, window, cx| {
+                                        this.rename_impl(disambiguation_range, window, cx);
+                                    });
+                                }
                             }
                         })
                         .ok();
@@ -4417,7 +4435,7 @@ impl Render for ProjectPanel {
                 }))
                 .key_context(self.dispatch_context(window, cx))
                 .on_action(cx.listener(Self::select_next))
-                .on_action(cx.listener(Self::select_prev))
+                .on_action(cx.listener(Self::select_previous))
                 .on_action(cx.listener(Self::select_first))
                 .on_action(cx.listener(Self::select_last))
                 .on_action(cx.listener(Self::select_parent))
@@ -5877,7 +5895,7 @@ mod tests {
                 //
                 "v root1",
                 "      one.txt",
-                "      [EDITOR: 'one copy.txt']  <== selected",
+                "      [EDITOR: 'one copy.txt']  <== selected  <== marked",
                 "      one.two.txt",
             ]
         );
@@ -5905,7 +5923,7 @@ mod tests {
                 "v root1",
                 "      one.txt",
                 "      one copy.txt",
-                "      [EDITOR: 'one copy 1.txt']  <== selected",
+                "      [EDITOR: 'one copy 1.txt']  <== selected  <== marked",
                 "      one.two.txt",
             ]
         );
@@ -5978,7 +5996,7 @@ mod tests {
                 "    > b",
                 "      four.txt",
                 "      one.txt",
-                "      three.txt  <== selected",
+                "      three.txt  <== selected  <== marked",
                 "      two.txt",
             ]
         );
@@ -6006,7 +6024,7 @@ mod tests {
                 "    > b",
                 "      four.txt",
                 "      one.txt",
-                "      three.txt",
+                "      three.txt  <== marked",
                 "      two.txt",
             ]
         );
@@ -6076,7 +6094,7 @@ mod tests {
                 "    > b",
                 "      four.txt",
                 "      one.txt",
-                "      three.txt  <== selected",
+                "      three.txt  <== selected  <== marked",
                 "      two.txt",
             ]
         );
@@ -6106,7 +6124,7 @@ mod tests {
                 "      four.txt",
                 "      one.txt",
                 "      three.txt",
-                "      [EDITOR: 'three copy.txt']  <== selected",
+                "      [EDITOR: 'three copy.txt']  <== selected  <== marked",
                 "      two.txt",
             ]
         );
@@ -7505,7 +7523,7 @@ mod tests {
         );
         cx.update(|window, cx| {
             panel.update(cx, |this, cx| {
-                this.select_prev(&Default::default(), window, cx);
+                this.select_previous(&Default::default(), window, cx);
             })
         });
         assert_eq!(
@@ -7562,7 +7580,7 @@ mod tests {
         // ESC clears out all marks
         cx.update(|window, cx| {
             panel.update(cx, |this, cx| {
-                this.select_prev(&SelectPrev, window, cx);
+                this.select_previous(&SelectPrevious, window, cx);
                 this.select_next(&SelectNext, window, cx);
             })
         });
@@ -7580,8 +7598,8 @@ mod tests {
         cx.update(|window, cx| {
             panel.update(cx, |this, cx| {
                 this.cut(&Cut, window, cx);
-                this.select_prev(&SelectPrev, window, cx);
-                this.select_prev(&SelectPrev, window, cx);
+                this.select_previous(&SelectPrevious, window, cx);
+                this.select_previous(&SelectPrevious, window, cx);
 
                 this.paste(&Paste, window, cx);
                 // this.expand_selected_entry(&ExpandSelectedEntry, cx);

@@ -5,8 +5,8 @@ use assistant::AssistantPanel;
 use assistant_settings::AssistantSettings;
 use editor::actions::{
     AddSelectionAbove, AddSelectionBelow, DuplicateLineDown, GoToDiagnostic, GoToHunk,
-    GoToPrevDiagnostic, GoToPrevHunk, MoveLineDown, MoveLineUp, SelectAll, SelectLargerSyntaxNode,
-    SelectNext, SelectSmallerSyntaxNode, ToggleGoToLine,
+    GoToPreviousDiagnostic, GoToPreviousHunk, MoveLineDown, MoveLineUp, SelectAll,
+    SelectLargerSyntaxNode, SelectNext, SelectSmallerSyntaxNode, ToggleGoToLine,
 };
 use editor::{Editor, EditorSettings};
 use gpui::{
@@ -180,10 +180,10 @@ impl Render for QuickActionBar {
                             .action("Go to Line/Column", Box::new(ToggleGoToLine))
                             .separator()
                             .action("Next Problem", Box::new(GoToDiagnostic))
-                            .action("Previous Problem", Box::new(GoToPrevDiagnostic))
+                            .action("Previous Problem", Box::new(GoToPreviousDiagnostic))
                             .separator()
                             .action("Next Hunk", Box::new(GoToHunk))
-                            .action("Previous Hunk", Box::new(GoToPrevHunk))
+                            .action("Previous Hunk", Box::new(GoToPreviousHunk))
                             .separator()
                             .action("Move Line Up", Box::new(MoveLineUp))
                             .action("Move Line Down", Box::new(MoveLineDown))
@@ -307,9 +307,9 @@ impl Render for QuickActionBar {
                                 let mut inline_completion_entry = ContextMenuEntry::new("Edit Predictions")
                                     .toggleable(IconPosition::Start, edit_predictions_enabled_at_cursor && show_edit_predictions)
                                     .disabled(!edit_predictions_enabled_at_cursor)
-                                    .action(Some(
+                                    .action(
                                         editor::actions::ToggleEditPrediction.boxed_clone(),
-                                    )).handler({
+                                    ).handler({
                                         let editor = editor.clone();
                                         move |window, cx| {
                                             editor
